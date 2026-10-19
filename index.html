@@ -1319,7 +1319,7 @@ function renderSet(){
     <div id="impBox" style="display:none"><textarea class="inp" id="impText" rows="5" style="width:100%" placeholder="내보낸 글을 여기에 붙여넣으세요"></textarea>
       <div class="row"><button class="btn pri" id="impGo">이 내용으로 바꾸기</button></div></div>
     <h3>초기화</h3><div class="row"><button class="btn warn" id="reset">모든 기록 지우기</button></div>
-    <div class="note" style="margin-top:20px">근무달력 4.2 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
+    <div class="note" style="margin-top:20px">근무달력 4.3 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
   $('setBody').innerHTML = h;
   renderPreview();
 }
@@ -1364,12 +1364,14 @@ function renderMe(){
       <div class="kv" style="padding-top:0"><span>${badgeHTML(shn).replace('class="badge', 'style="width:24px;height:24px;font-size:13px;display:inline-flex;vertical-align:middle;margin-right:6px" class="badge')}<b>${esc(shn)}간 근무일</b></span>
         <span class="s">평소 ${esc(sd.start)}~${esc(sd.end)} · 근무 ${hmTxt(String(m.work / 60))}${m.night ? ' · 야간 ' + hmTxt(String(m.night / 60)) : ''}</span></div>
       <table class="sum fix"><colgroup><col style="width:21%"><col style="width:23%"><col style="width:21%"><col style="width:21%"><col style="width:14%"></colgroup>
-      <tr><th>종류</th><th>출근·퇴근</th><th>근무</th><th>야간</th><th>연차</th></tr>
+      <tr><th>종류</th><th>출근·퇴근</th><th>연차 시간</th><th>야간</th><th>연차</th></tr>
       ${['am','pm','q1','q4'].map(pk => { const r = (st.partTable[shn] || {})[pk] || {};
-        return `<tr><td>${PNAME[pk]}</td><td>${esc(r.note || '')}</td><td>${hmTxt(r.work)}</td><td>${hmTxt(r.night)}</td><td>${AMT[pk]}</td></tr>`; }).join('')}
+        // 연차 시간 = 평소 근무시간 − 그날 일하는 시간 (반차·반반차로 쉬는 만큼)
+        const off = Math.max(0, m.work - (hm(r.work) || 0));
+        return `<tr><td>${PNAME[pk]}</td><td>${esc(r.note || '')}</td><td>${hmTxt(String(off / 60))}</td><td>${hmTxt(r.night)}</td><td>${AMT[pk]}</td></tr>`; }).join('')}
       </table></div>`;
   }
-  h += `<div class="note">분할연차는 하루에 하나만 쓸 수 있고, 지정근무일에는 야간 분할연차를 쓸 수 없습니다.</div>`;
+  h += `<div class="note">연차 시간 = 평소 근무시간에서 반차·반반차로 빠지는 시간 · 야간 = 그날 인정되는 야간 시간<br>분할연차는 하루에 하나만 쓸 수 있고, 지정근무일에는 야간 분할연차를 쓸 수 없습니다.</div>`;
   $('meBody').innerHTML = h;
   renderPreview();
 }
