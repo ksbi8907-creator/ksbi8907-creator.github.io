@@ -324,7 +324,9 @@ nav button.pressing svg{transform:translateY(1px)}
 <script>
 'use strict';
 /* ───────── 기본값 ───────── */
-const STORE_KEY = 'shiftcal.v1';
+// 안드로이드 앱은 예전 그대로, 웹(아이폰·공유 주소)은 새 칸에 저장
+// → 공유 주소를 예전에 열어 본 브라우저에 남은 옛 기본값(통상임금 등)을 쓰지 않고 처음 설정부터 시작
+const STORE_KEY = window.Android ? 'shiftcal.v1' : 'shiftcal.web.v2';
 const SHIFT_STYLES = [
   ['yellow','노란 동그라미'],['dark','검은 동그라미'],['red','빨간 글자'],['blue','파란 글자'],
   ['gray','회색 글자'],['green','초록 동그라미'],['bluec','파란 동그라미'],['purple','보라 동그라미']];
@@ -1317,7 +1319,7 @@ function renderSet(){
     <div id="impBox" style="display:none"><textarea class="inp" id="impText" rows="5" style="width:100%" placeholder="내보낸 글을 여기에 붙여넣으세요"></textarea>
       <div class="row"><button class="btn pri" id="impGo">이 내용으로 바꾸기</button></div></div>
     <h3>초기화</h3><div class="row"><button class="btn warn" id="reset">모든 기록 지우기</button></div>
-    <div class="note" style="margin-top:20px">근무달력 4.1 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
+    <div class="note" style="margin-top:20px">근무달력 4.2 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
   $('setBody').innerHTML = h;
   renderPreview();
 }
