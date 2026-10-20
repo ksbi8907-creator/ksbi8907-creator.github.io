@@ -119,6 +119,9 @@ header .sp{flex:1}
 .ev.att{background:none;color:var(--gray);border:1px solid var(--gray);text-align:center}
 .ev.att.rest{color:var(--red);border-color:var(--red)}
 .ev.att.work{color:var(--sat);border-color:var(--sat)}
+/* 근태 아래 작은 출퇴근 시각 */
+.cell .tm{font-size:9.5px;font-weight:600;line-height:1.2;text-align:center;letter-spacing:-.5px;white-space:normal;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.cell .tm.r{color:var(--red)} .cell .tm.w{color:var(--sat)}
 /* 날짜 창 묶음 */
 .seg{display:flex;gap:6px;margin:4px 16px 6px}
 .seg button{flex:1;border:1.5px solid var(--tap);background:var(--bg);color:var(--tap);border-radius:10px;padding:8px 0;font-size:14px;font-weight:700}
@@ -936,8 +939,15 @@ function renderCal(){
     let chips = '';
     for(const e of (d.entries||[])){
       const t = typeDef(e.type);
-      if(t.mode === 'add') continue;
+      if(t.mode === 'add'){ // 휴일근무·지정근무: 카드 아래 작게 출퇴근 시각
+        const ed = entryDef(e);
+        if(ed.start && ed.end) chips += `<div class="tm w">${esc(ed.start)}~<wbr>${esc(ed.end)}</div>`;
+        continue;
+      }
       chips += `<div class="ev att ${GROUP_CLS[t.mode] || ''}">${esc(shortName(t, e))}</div>`;
+      // 반차·반반차: 바뀐 출근·퇴근 시각 (예: 14:20 출근)
+      const p = partOf(e), row = p !== 'full' ? partRow(effShift(k), p) : null;
+      if(row && row.note) chips += `<div class="tm r">${esc(row.note)}</div>`;
     }
     let memoTop = '';
     if(d.memo){ // 메모는 자르지 않고 줄을 바꿔 전부 보여 줌
@@ -1400,7 +1410,7 @@ function renderSet(){
     <div id="impBox" style="display:none"><textarea class="inp" id="impText" rows="5" style="width:100%" placeholder="내보낸 글을 여기에 붙여넣으세요"></textarea>
       <div class="row"><button class="btn pri" id="impGo">이 내용으로 바꾸기</button></div></div>
     <h3>초기화</h3><div class="row"><button class="btn warn" id="reset">모든 기록 지우기</button></div>
-    <div class="note" style="margin-top:20px">근무달력 4.9 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
+    <div class="note" style="margin-top:20px">근무달력 5.0 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
   $('setBody').innerHTML = h;
   renderPreview();
 }
