@@ -13,6 +13,8 @@
 <meta name="theme-color" content="#121418" media="(prefers-color-scheme: dark)">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.webmanifest">
+<!-- 개인용 급여 기준: 안드로이드 앱에만 있음 (공유용 웹에는 없어서 그냥 건너뜀) -->
+<script src="personal.js" onerror="this.remove()"></script>
 <style>
 :root{
   --bg:#ffffff; --bg2:#f6f7f9; --line:#e6e8ec; --txt:#1c1f24; --sub:#6b7280; --dim:#b8bdc6;
@@ -163,7 +165,7 @@ h2{font-size:20px;font-weight:700;margin:18px 0 10px}
 h3{font-size:15px;font-weight:700;margin:22px 0 8px}
 .card{background:var(--bg2);border-radius:14px;padding:14px;margin-bottom:10px}
 .kv{display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;font-size:15px}
-.kv .v{font-weight:700;font-variant-numeric:tabular-nums}
+.kv .v{white-space:nowrap;padding-left:8px;font-weight:700;font-variant-numeric:tabular-nums}
 .kv.big .v{font-size:24px;color:var(--brand)}
 .kv .s{font-size:12px;color:var(--sub);font-weight:500}
 .hr{height:1px;background:var(--line);margin:6px 0}
@@ -373,8 +375,8 @@ function defaults(){
       annualLeave:21,
       /* 수당: 시급 = 통상임금 ÷ 214, 초과 = 시급 × 초과시간 × 1.5, 야간 = 시급 × 야간시간 × 0.5 */
       otMethod:'extra',   // extra = 추가근무(휴일근무·지정근무·근무협조) 합계, base = 월 기준시간 넘는 시간
-      wage:0, wageDiv:214, otRate:1.5, nightRate:0.5,
-      ver:8,
+      wage:0, wageDiv:209, otRate:1.5, nightRate:0.5, legalHourly:0,
+      ver:9,
       /* 분할연차(반일·1/4) 기준표. 근무 = 실제 근무시간, 야간 = 야간 인정시간, 인정 = 근무한 것으로 보는 연차 시간 */
       partTable:defaultPartTable(),
       types:[
@@ -477,11 +479,15 @@ function merge(d, o){
     if(am && am.night === '2:50') am.night = '2:20';
     r.settings.ver = 7;
   }
+  if(r.settings.ver < 9){ // 회사 시급 = 통상임금 ÷ 209 (2026-10 급여명세서로 확인)
+    if(Number(r.settings.wageDiv) === 214) r.settings.wageDiv = 209;
+  }
   if(r.settings.ver < 8){ // 야간 후반차 야간 인정: 22:00~01:40 퇴근 = 3시간 40분
     const pm = r.settings.partTable && r.settings.partTable['야'] && r.settings.partTable['야'].pm;
     if(pm && pm.night === '2:10') pm.night = '3:40';
     r.settings.ver = 8;
   }
+  if(r.settings.ver < 9) r.settings.ver = 9;
   r.days = o.days || {}; r.monthMemo = o.monthMemo || {};
   return r;
 }
@@ -716,7 +722,7 @@ function dayCalc(k){
 }
 function monthCalc(y, m){
   const last = new Date(y, m, 0).getDate();
-  const res = {work:0, night:0, hol:0, credit:0, extra:0, weekdays:0, shiftCount:{}, types:{}, rows:[]};
+  const res = {work:0, night:0, hol:0, credit:0, extra:0, otOnly:0, hol1:0, hol2:0, weekdays:0, shiftCount:{}, types:{}, rows:[]};
   for(let d = 1; d <= last; d++){
     const k = key(y,m,d);
     const w = dow(k);
@@ -727,23 +733,52 @@ function monthCalc(y, m){
     for(const it of c.items){
       const t = res.types[it.type] || (res.types[it.type] = {name:typeDef(it.type).name, mode:it.mode, n:0, min:0});
       t.n++; t.min += it.mode === 'replace' ? it.credit : it.work;
-      if(it.mode === 'add') res.extra += it.work;
+      if(it.mode === 'add'){
+        res.extra += it.work;
+        // 개인용: 휴일근무수당은 원래 「휴」인 날만. 「비」 등 다른 날 휴일근무는 시간외로 (9월 명세서 검산)
+        const holDay = c.shift === RULES.holidayShift;
+        if(it.name.indexOf('휴일근무') >= 0 && holDay){
+          const base = RULES.holidayBaseHours * 60;
+          res.hol1 += Math.min(base, it.work); res.hol2 += Math.max(0, it.work - base);
+        } else if(it.name.indexOf('지정근무') >= 0){
+          // 지정근무: 주간 하루(8.67시간)를 넘는 시간만 초과 (야간 12시간 → 초과 3.33시간, 야간수당 6시간은 그대로)
+          const sd = shiftDef(RULES.designatedBase);
+          const base = sd && sd.start && sd.end ? shiftMeasure(k, sd).work : 0;
+          res.otOnly += Math.max(0, it.work - base);
+        } else res.otOnly += it.work;
+      }
     }
     if(c.work || c.credit || c.items.length) res.rows.push({k, c});
   }
   res.base = res.weekdays * (Number(S.settings.baseHours)||0) * 60;
   res.overBase = res.work + res.credit - res.base;
   res.over = S.settings.otMethod === 'base' ? res.overBase : res.extra;
+  if(S.settings.otMethod !== 'base') res.over = res.otOnly;   // 명세서처럼 휴일근무는 시간외와 따로
   return res;
 }
 const won = n => Math.floor(n).toLocaleString('ko-KR') + '원';
-function payCalc(r){
-  const st = S.settings, div = Number(st.wageDiv) || 214;
-  const hourly = (Number(st.wage) || 0) / div;
-  const otMin = Math.max(0, r.over);
-  const ot = Math.floor(hourly * otMin / 60 * (Number(st.otRate) || 0));
-  const night = Math.floor(hourly * r.night / 60 * (Number(st.nightRate) || 0));
-  return {hourly, ot, night, total:ot + night};
+/* 회사 급여 규칙 (2026-10 급여명세서 = 9월 근무분으로 검산)
+   · 회사 시급 = 통상임금 ÷ 209 (정수), 단가 = 시급 × 배율 반올림, 금액 = 단가 × 시간(소수 둘째 자리)의 10원 아래 버림
+   · 휴일근무수당은 원래 「휴」인 날만: 8시간까지 1.5배(휴일1), 넘는 시간 2배(휴일2). 「비」 날 휴일근무는 시간외
+   · 지정근무 초과 = 일한 시간 − 주간 하루(8.67시간)  예) 야간 12시간 → 초과 3.33시간 + 야간 6시간
+   · 법정차액 = (법정 시급 − 회사 시급) × 배율. 법정 시급을 적은 사람만. 2027년부터 각 수당에 합쳐짐 */
+const RULES = {holidayShift:'휴', holidayBaseHours:8, holidayMult2:2, designatedBase:'주', mergeYear:2027};
+function payCalc(r, y){
+  if(y == null) y = curY;
+  const P = window.PERSONAL || {}, st = S.settings;
+  const hr = Math.floor((Number(st.wage) || 0) / (Number(st.wageDiv) || 209));
+  const lg = Number(st.legalHourly) || Number(P.legalHourly) || 0;
+  const merged = !!lg && y >= RULES.mergeYear;
+  const H = m => Math.round(m / 60 * 100) / 100;
+  const amt = (h, mult, hours) => Math.floor(Math.round(h * mult) * hours / 10) * 10;
+  const ot = Number(st.otRate) || 1.5, nt = Number(st.nightRate) || 0.5;
+  const items = [['시간외근무수당', ot, H(r.otOnly)], ['야간근무수당', nt, H(r.night)], ['휴일근무수당1', ot, H(r.hol1)], ['휴일근무수당2', RULES.holidayMult2, H(r.hol2)]]
+    .map(([name, mult, hours]) => { const co = amt(hr, mult, hours);
+      return {name, mult, hours, co, lg:!lg ? co : merged ? amt(lg, mult, hours) : co + amt(lg - hr, mult, hours)}; });
+  const coSum = items.reduce((a, i) => a + i.co, 0), lgSum = items.reduce((a, i) => a + i.lg, 0);
+  const fixedList = P.fixedPay || [], fixed = fixedList.reduce((a, f) => a + f[1], 0);
+  const allow = merged ? lgSum : coSum, diff = merged ? 0 : lgSum - coSum;
+  return {hourly:hr, legal:lg, merged, items, fixedList, fixed, allow, diff, total:allow + diff, grand:fixed + allow + diff, amt};
 }
 const LEAVE_AMT = {full:1, am:.5, pm:.5, q1:.25, q4:.25};
 const fmtN = n => String(Math.round(n * 100) / 100);
@@ -913,7 +948,9 @@ function renderCal(){
 function renderCalTail(){
   $('mmemo').value = S.monthMemo[`${curY}-${pad(curM)}`] || '';
   const mr = monthCalc(curY, curM), pay = payCalc(mr);
-  $('payLine').innerHTML = `<span>${curM}월 예상 수당 · 초과 ${fmtH(Math.max(0, mr.over))}h · 야간 ${fmtH(mr.night)}h</span><b style="color:var(--txt)">${won(pay.total)} ›</b>`;
+  $('payLine').innerHTML = pay.fixed
+    ? `<span>${curM}월 근무 → ${curM % 12 + 1}월 급여 · 수당 ${won(pay.total)}</span><b style="color:var(--txt)">${won(pay.grand)} ›</b>`
+    : `<span>${curM}월 근무 → ${curM % 12 + 1}월 수당 · 초과 ${fmtH(Math.max(0, mr.over))}h · 야간 ${fmtH(mr.night)}h</span><b style="color:var(--txt)">${won(pay.total)} ›</b>`;
   autoGrow($('mmemo'));
 }
 function moveMonth(n){
@@ -1132,24 +1169,41 @@ function renderStat(){
   const r = monthCalc(curY, curM);
   const pay = payCalc(r), st = S.settings;
   let h = '';
-  h += `<div class="card" style="margin-top:8px">
-    <div class="kv"><span>${curM}월 예상 수당</span></div>
-    <div style="font-size:30px;font-weight:700;color:var(--brand);font-variant-numeric:tabular-nums;margin:2px 0 8px">${won(pay.total)}</div>
-    <div class="kv"><span>초과근무수당 <span class="s">${won(pay.hourly)} × ${fmtH(Math.max(0, r.over))}시간 × ${st.otRate}</span></span><span class="v">${won(pay.ot)}</span></div>
-    <div class="kv"><span>야간근무수당 <span class="s">${won(pay.hourly)} × ${fmtH(r.night)}시간 × ${st.nightRate}</span></span><span class="v">${won(pay.night)}</span></div>
-    <div class="note">시급 ${won(pay.hourly)} = 통상임금 ${won(st.wage)} ÷ ${st.wageDiv} · 세금 떼기 전 · 원 단위 아래 버림</div>
-  </div>`;
-  // 휴일근무 하루 단가: 주간 = 근무시간 × 초과 시급, 야간 = 근무시간 × 초과 시급 + 야간시간 × 야간 시급
-  const otH = pay.hourly * (Number(st.otRate) || 0), ntH = pay.hourly * (Number(st.nightRate) || 0);
-  const unit = st.shifts.filter(x => x.start && x.end).map(sd => {
-    const m = shiftMeasure(todayKey(), sd);
-    const ot = Math.floor(otH * m.work / 60), nt = Math.floor(ntH * m.night / 60);
-    return `<div class="kv"><span>${badgeHTML(sd.name).replace('class="badge', 'style="width:24px;height:24px;font-size:13px;display:inline-flex;vertical-align:middle;margin-right:6px" class="badge')}휴일근무 ${esc(sd.name)}간
-        <div class="s" style="margin:3px 0 0 30px">${fmtH(m.work)}시간 × ${won(otH)}${m.night ? ` + ${fmtH(m.night)}시간 × ${won(ntH)}` : ''}</div></span>
-      <span class="v">${won(ot + nt)}</span></div>`;
+  $('statBody').innerHTML = h + payCards(r, pay) + monthRest(r);
+}
+/* 근무한 달 → 다음 달 급여 예상 (고정급은 개인용 앱에만, 법정차액은 법정 시급을 적은 사람만) */
+function payCards(r, pay){
+  const st = S.settings;
+  const row = (l, v, sub) => `<div class="kv"><span>${l}${sub ? ` <span class="s">${sub}</span>` : ''}</span><span class="v">${won(v)}</span></div>`;
+  let h = `<div class="card" style="margin-top:8px">
+    <div class="kv"><span>${curM}월 근무분 → <b>${curM % 12 + 1}월 급여</b> ${pay.fixed ? '' : '수당 '}예상 <span class="s">세금 떼기 전</span></span></div>
+    <div style="font-size:30px;font-weight:700;color:var(--brand);font-variant-numeric:tabular-nums;margin:2px 0 8px">${won(pay.grand)}</div>
+    ${pay.fixed ? row('고정급', pay.fixed, '매달 같음') : ''}${row(pay.fixed ? '수당' : '수당 합계', pay.allow, pay.merged ? '법정 시급 기준' : '회사 시급 기준')}${pay.legal && !pay.merged ? row('법정차액', pay.diff, `~${RULES.mergeYear - 1}년 따로 지급`) : ''}</div>`;
+  h += `<h3>수당</h3><div class="card">`;
+  for(const it of pay.items){
+    if(!it.hours && it.name.indexOf('2') >= 0) continue;
+    const unit = Math.round((pay.merged ? pay.legal : pay.hourly) * it.mult);
+    h += row(it.name, pay.merged ? it.lg : it.co, `${won(unit)} × ${it.hours}시간`);
+    if(pay.legal && !pay.merged && it.lg - it.co) h += `<div class="kv" style="padding-top:0"><span class="s" style="padding-left:12px">└ ${it.name.replace('근무수당', '수당')}_법정차액</span><span class="s">${won(it.lg - it.co)}</span></div>`;
+  }
+  h += `<div class="note">회사 시급 ${won(pay.hourly)} = 통상임금 ${won(st.wage)} ÷ ${st.wageDiv}${pay.legal ? ` · 법정 시급 ${won(pay.legal)}` : ''}<br>
+    휴일근무수당은 「${RULES.holidayShift}」인 날만: ${RULES.holidayBaseHours}시간까지 1.5배(휴일1), 넘는 시간 2배(휴일2) · 「비」 날 휴일근무는 시간외<br>
+    지정근무는 8.67시간 넘는 만큼만 초과 · 금액은 10원 아래 버림</div></div>`;
+  if(pay.fixed) h += `<h3>고정급</h3><div class="card">${pay.fixedList.map(f => row(f[0], f[1])).join('')}</div>`;
+  // 휴일근무 하루 단가 (법정차액 포함)
+  const unitCards = st.shifts.filter(x => x.start && x.end).map(sd => {
+    const m = shiftMeasure(todayKey(), sd), hrs = Math.round(m.work / 60 * 100) / 100, nh = Math.round(m.night / 60 * 100) / 100;
+    const b = RULES.holidayBaseHours, h1 = Math.min(b, hrs), h2 = Math.round((hrs - h1) * 100) / 100;
+    const ot = Number(st.otRate) || 1.5, ntr = Number(st.nightRate) || 0.5;
+    const sum = hr => pay.amt(hr, ot, h1) + pay.amt(hr, RULES.holidayMult2, h2) + pay.amt(hr, ntr, nh);
+    return row(`${badgeHTML(sd.name).replace('class="badge', 'style="width:24px;height:24px;font-size:13px;display:inline-flex;vertical-align:middle;margin-right:6px" class="badge')}휴일근무 ${esc(sd.name)}간`,
+      sum(pay.legal || pay.hourly), `${h1}h×1.5${h2 ? ` + ${h2}h×2` : ''}${nh ? ` + 야간 ${nh}h×0.5` : ''}`);
   }).join('');
-  h += `<div class="card"><div class="kv"><span>휴일근무 하루 단가</span></div>${unit}
-    <div class="note">초과 시급 = 시급 × ${st.otRate} · 야간 시급 = 시급 × ${st.nightRate} · 연속 근무로 겹치는 날은 겹친 만큼 줄어듭니다</div></div>`;
+  h += `<div class="card"><div class="kv"><span>휴일근무 하루 단가 <span class="s">「휴」 날 기준${pay.legal ? ' · 법정차액 포함' : ''}</span></span></div>${unitCards}</div>`;
+  return h;
+}
+function monthRest(r){
+  let h = '';
   h += `<div class="statgrid">
     <div class="stat hi"><div class="l">초과근무</div><div class="n">${fmtH(Math.max(0, r.over))}<small>시간</small></div></div>
     <div class="stat"><div class="l">야간근무</div><div class="n">${fmtH(r.night)}<small>시간</small></div></div>
@@ -1167,7 +1221,7 @@ function renderStat(){
     <div class="kv"><span>실제 근무시간 <span class="s">(교대근무 + 추가근무)</span></span><span class="v">${fmtH(r.work)}시간</span></div>
     ${Object.values(r.types).filter(t => t.mode === 'add').map(t => `<div class="kv"><span>${esc(t.name)} <span class="s">${t.n}회</span></span><span class="v">${fmtH(t.min)}시간</span></div>`).join('')}
     <div class="hr"></div>
-    <div class="kv big"><span>초과근무 <span class="s">(추가근무 합계)</span></span><span class="v">${fmtH(r.over)}시간</span></div>
+    <div class="kv big"><span>초과근무 <span class="s">(휴일근무 제외 · 지정근무는 8.67시간 넘는 만큼)</span></span><span class="v">${fmtH(r.over)}시간</span></div>
     ${r.extra ? '' : `<div class="note">이 달에 넣은 휴일근무·지정근무·근무협조가 없습니다.</div>`}`}
   </div>`;
   const sc = S.settings.shifts.filter(s => s.start && s.end).map(s => `${badgeHTML(s.name)} <b>${r.shiftCount[s.name]||0}</b>회`).join(' &nbsp; ');
@@ -1198,7 +1252,7 @@ function renderStat(){
     · 휴일 = 일요일·공휴일${S.settings.satIsHoliday ? '·토요일' : ''}(0시~24시) 안에 근무한 시간<br>
     · 밤을 넘기는 근무는 시작한 날의 달에 넣습니다<br>
     · 수당 계산 규칙은 기관마다 다를 수 있습니다. 설정에서 시간을 맞추고, 실제 지급액은 소속 기관 기준을 확인하세요.</div>`;
-  $('statBody').innerHTML = h;
+  return h;
 }
 function renderSum(){
   $('stitle').textContent = `${curY}년`;
@@ -1277,6 +1331,8 @@ function renderSet(){
   // 분할연차 기준표도 바꿀 일이 없어 화면에서 뺌 (값은 그대로 씀)
   h += `<h3>수당 계산</h3>
     <div class="row"><label>시급</label>통상임금 ÷ <input class="inp sm" type="number" min="1" data-set="wageDiv" value="${esc(st.wageDiv)}"> = <b id="hourly">${won((Number(st.wage)||0) / (Number(st.wageDiv)||214))}</b></div>
+    <div class="row"><label>법정 시급</label><input class="inp" style="width:120px" type="number" min="0" data-set="legalHourly" value="${esc(st.legalHourly || '')}" placeholder="${window.PERSONAL && window.PERSONAL.legalHourly ? window.PERSONAL.legalHourly : '모르면 비움'}"> 원</div>
+    <div class="hint">명세서의 「법정차액」을 계산할 때만 씁니다. 비워 두면 법정차액 없이 회사 시급으로만 계산합니다.</div>
     <div class="row"><label>초과 배율</label><input class="inp sm" type="number" step="0.1" min="0" data-set="otRate" value="${esc(st.otRate)}">
       <span style="width:8px"></span>야간 배율 <input class="inp sm" type="number" step="0.1" min="0" data-set="nightRate" value="${esc(st.nightRate)}"></div>
     <div class="row"><label>초과시간</label><select class="inp" style="flex:1" data-set="otMethod">
@@ -1319,7 +1375,7 @@ function renderSet(){
     <div id="impBox" style="display:none"><textarea class="inp" id="impText" rows="5" style="width:100%" placeholder="내보낸 글을 여기에 붙여넣으세요"></textarea>
       <div class="row"><button class="btn pri" id="impGo">이 내용으로 바꾸기</button></div></div>
     <h3>초기화</h3><div class="row"><button class="btn warn" id="reset">모든 기록 지우기</button></div>
-    <div class="note" style="margin-top:20px">근무달력 4.3 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
+    <div class="note" style="margin-top:20px">근무달력 4.7 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
   $('setBody').innerHTML = h;
   renderPreview();
 }
