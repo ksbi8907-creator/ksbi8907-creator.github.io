@@ -22,7 +22,7 @@
   --ease-out:cubic-bezier(0.23, 1, 0.32, 1);
   --ease-drawer:cubic-bezier(0.32, 0.72, 0, 1);
   --sun:#e5484d; --sat:#3d6df2; --brand:#3d6df2; --today:#e9f7d9; --todayChip:#c5eb9c;
-  --yellow:#ffd400; --dark:#34373c; --red:#e5484d; --green:#2fb176; --purple:#8a5cf5; --orange:#e8590c; --gray:#8a8f98;
+  --des:#13854b; --yellow:#ffd400; --dark:#34373c; --red:#e5484d; --green:#2fb176; --purple:#8a5cf5; --orange:#e8590c; --gray:#8a8f98;
   --myrow:#fff8d6; --darkRing:transparent; --shadow:rgba(0,0,0,.15); --mask:rgba(0,0,0,.35);
   color-scheme:light;
 }
@@ -30,7 +30,7 @@
 :root[data-theme="dark"]{
   --bg:#121418; --bg2:#1c1f25; --line:#2b2f37; --txt:#e8eaee; --sub:#9aa1ad; --dim:#5d6470;
   --tap:#6e8cff; --sun:#ff6b70; --sat:#6e8cff; --brand:#6e8cff; --today:#1f3320; --todayChip:#3c6b2c;
-  --yellow:#ffd400; --dark:#40454e; --red:#ff6b70; --gray:#8a919c;
+  --des:#45d18c; --yellow:#ffd400; --dark:#40454e; --red:#ff6b70; --gray:#8a919c;
   --myrow:#2e2a17; --darkRing:#6b717c; --shadow:rgba(0,0,0,.6); --mask:rgba(0,0,0,.6);
   color-scheme:dark;
 }
@@ -143,6 +143,14 @@ h3.gh.rest{color:var(--red)} h3.gh.work{color:var(--sat)}
 .chip.work{border-color:var(--sat);color:var(--sat)}
 .chip.sh.work.on{background:var(--sat);color:#fff;border:1.5px solid var(--sat)}
 .chip.sh.work .badge{margin-right:2px}
+/* 지정근무는 초록, 휴일근무는 파랑 — 한눈에 구분 */
+.chip.work.des{border-color:var(--des);color:var(--des)}
+.chip.sh.work.des.on{background:var(--des);border-color:var(--des);color:#fff}
+.entry.work.des{border-color:var(--des)} .entry.des .eh{color:var(--des)}
+.cell .tm.d{color:var(--des)}
+.wb.des.st-yellow{color:#0b6636} .wb.des.st-dark{color:#5fe0a0}
+#extraLine .d{color:var(--des)}
+.kv .des,table.sum td.des{color:var(--des)}
 /* 같은 성격 버튼은 같은 줄·같은 열에: 칸 너비를 똑같이 나눔 */
 .cgrid{display:grid;gap:6px}
 .cgrid.c2{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -368,6 +376,7 @@ const MEMO_COLORS = [['none','글'],['blue',''],['orange',''],['green',''],['pur
 const COLOR_HEX = {blue:'#5b84f0',orange:'#e8590c',green:'#2fb176',purple:'#8a5cf5',red:'#e5484d',gray:'#9aa0a8'};
 const MODES = {add:'추가 근무', replace:'근무 대신', none:'기록만'};
 const GROUP_CLS = {replace:'rest', add:'work', none:''};
+const isDes = t => (t && t.name || '').indexOf('지정근무') >= 0;
 const GROUPS = [
   {mode:'replace', cls:'rest', title:'쉬는 날', sub:'하나만 고름 · 그날 근무를 쉼'},
   {mode:'add',     cls:'work', title:'일하는 날', sub:'주·야 중 골라서 · 근무에 더해 일함'},
@@ -918,8 +927,8 @@ function workCard(k){
   const lk = e => e.like ? `(${e.like})` : '';
   const st = e => (e.like && shiftDef(e.like) || {}).style || 'none';
   const blocks = list.length === 1
-    ? [`<span class="wb st-${st(list[0])}"><span>${esc(typeDef(list[0].type).name)}</span>${lk(list[0]) ? `<span>${esc(lk(list[0]))}</span>` : ''}</span>`]
-    : list.map(e => `<span class="wb st-${st(e)}"><span>${esc(shortName(typeDef(e.type), e) + lk(e))}</span></span>`);
+    ? [`<span class="wb st-${st(list[0])}${isDes(typeDef(list[0].type)) ? ' des' : ''}"><span>${esc(typeDef(list[0].type).name)}</span>${lk(list[0]) ? `<span>${esc(lk(list[0]))}</span>` : ''}</span>`]
+    : list.map(e => `<span class="wb st-${st(e)}${isDes(typeDef(e.type)) ? ' des' : ''}"><span>${esc(shortName(typeDef(e.type), e) + lk(e))}</span></span>`);
   return `<span class="wcard">${blocks.join('')}</span>`;
 }
 /* 달력 칸에 쓰는 두 글자 이름 (잘리지 않게) */
@@ -996,7 +1005,7 @@ function renderCal(){
       const t = typeDef(e.type);
       if(t.mode === 'add'){ // 휴일근무·지정근무: 카드 아래 작게 출퇴근 시각
         const ed = entryDef(e);
-        if(ed.start && ed.end) chips += `<div class="tm w">${esc(ed.start)}~<wbr>${esc(ed.end)}</div>`;
+        if(ed.start && ed.end) chips += `<div class="tm ${isDes(t) ? 'd' : 'w'}">${esc(ed.start)}~<wbr>${esc(ed.end)}</div>`;
         continue;
       }
       chips += `<div class="ev att ${GROUP_CLS[t.mode] || ''}">${esc(shortName(t, e))}</div>`;
@@ -1043,7 +1052,7 @@ function renderCalTail(){
     }
   }
   // 같은 종류는 묶어서: 휴근 주1·야1
-  const ws = Object.entries(w).map(([k, g]) => `<span class="w">${k} ${Object.entries(g).map(([l, n]) => l + n).join('·')}</span>`).join('');
+  const ws = Object.entries(w).map(([k, g]) => `<span class="${k === sn('지정근무') ? 'd' : 'w'}">${k} ${Object.entries(g).map(([l, n]) => l + n).join('·')}</span>`).join('');
   const rs = Object.entries(r).map(([k, n]) => `<span class="r">${k} ${fmtN(n)}</span>`).join('');
   const dv = '<i class="dv"></i>';
   $('extraLine').innerHTML = `<span class="lb">추가</span><span>+${won(ex.total)}</span>`
@@ -1118,7 +1127,7 @@ function renderDay(){
   entries.forEach((e, i) => {
     const t = typeDef(e.type);
     let h = '';
-    h += `<div class="entry ${GROUP_CLS[t.mode] || ''}"><div class="eh">${esc(t.name)} <span class="m">${MODES[t.mode]}</span><span class="sp"></span>
+    h += `<div class="entry ${GROUP_CLS[t.mode] || ''}${isDes(t) ? ' des' : ''}"><div class="eh">${esc(t.name)} <span class="m">${MODES[t.mode]}</span><span class="sp"></span>
       <button class="x" data-act="del" data-i="${i}" aria-label="지우기">✕</button></div>`;
     if(t.mode === 'replace'){
       const p = partOf(e);
@@ -1175,7 +1184,7 @@ function renderDay(){
 
         for(const sd of S.settings.shifts.filter(x => x.start && x.end)){
           const on = entries.some(e => e.type === t.id && e.like === sd.name);
-          h += `<button class="chip sh ${g.cls} ${on ? 'on' : ''}" data-act="pickw" data-v="${t.id}" data-like="${esc(sd.name)}">${badgeHTML(sd.name)}${esc(t.name)}${on ? '<i class="ck">✓</i>' : ''}</button>`;
+          h += `<button class="chip sh ${g.cls}${isDes(t) ? ' des' : ''} ${on ? 'on' : ''}" data-act="pickw" data-v="${t.id}" data-like="${esc(sd.name)}">${badgeHTML(sd.name)}${esc(t.name)}${on ? '<i class="ck">✓</i>' : ''}</button>`;
         }
         continue;
       }
@@ -1339,7 +1348,7 @@ function monthRest(r){
   if(!tk.length) h += `<div class="note">이 달에 입력한 근태가 없습니다. 달력에서 날짜를 눌러 넣으세요.</div>`;
   for(const id of tk){
     const t = r.types[id];
-    h += `<div class="kv"><span>${esc(t.name)} <span class="s">${MODES[t.mode]}</span></span><span class="v">${t.n}회${t.min ? ' · ' + fmtH(t.min) + '시간' : ''}</span></div>`;
+    h += `<div class="kv"><span${isDes(t) ? ' class="des"' : ''}>${esc(t.name)} <span class="s">${MODES[t.mode]}</span></span><span class="v">${t.n}회${t.min ? ' · ' + fmtH(t.min) + '시간' : ''}</span></div>`;
   }
   h += `</div>`;
   const ll = leaveLeft();
@@ -1391,7 +1400,7 @@ function renderSum(){
     const vals = cols.map(c => sumOf(kk, c[0], c[1]));
     vals.forEach((v, i) => { wTot[i].n += v.n; wTot[i].min += v.min; });
     const all = sumOf(kk, 1, 12); wAll.n += all.n; wAll.min += all.min;
-    h += `<tr><td>${lk ? badgeHTML(lk).replace('class="badge', 'style="width:20px;height:20px;font-size:11px;display:inline-flex;vertical-align:middle;margin-right:4px" class="badge') : ''}${esc(t.name)}${lk ? '' : ' (직접)'}</td>${vals.map(v => cell(v.n, '회')).join('')}${total ? cell(all.n, '회') : ''}</tr>`;
+    h += `<tr><td${isDes(t) ? ' class="des"' : ''}>${lk ? badgeHTML(lk).replace('class="badge', 'style="width:20px;height:20px;font-size:11px;display:inline-flex;vertical-align:middle;margin-right:4px" class="badge') : ''}${esc(t.name)}${lk ? '' : ' (직접)'}</td>${vals.map(v => cell(v.n, '회')).join('')}${total ? cell(all.n, '회') : ''}</tr>`;
   }
   h += `<tr class="tot"><td>합계</td>${wTot.map(v => cell(v.n, '회')).join('')}${total ? cell(wAll.n, '회') : ''}</tr>`;
   h += `<tr><td style="color:var(--sub)">일한 시간</td>${wTot.map(v => cell(Number(fmtH(v.min)), 'h')).join('')}${total ? cell(Number(fmtH(wAll.min)), 'h') : ''}</tr>`;
@@ -1483,7 +1492,7 @@ function renderSet(){
     <div id="impBox" style="display:none"><textarea class="inp" id="impText" rows="5" style="width:100%" placeholder="내보낸 글을 여기에 붙여넣으세요"></textarea>
       <div class="row"><button class="btn pri" id="impGo">이 내용으로 바꾸기</button></div></div>
     <h3>초기화</h3><div class="row"><button class="btn warn" id="reset">모든 기록 지우기</button></div>
-    <div class="note" style="margin-top:20px">근무달력 5.5 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
+    <div class="note" style="margin-top:20px">근무달력 5.6 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
   $('setBody').innerHTML = h;
   renderPreview();
 }
