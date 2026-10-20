@@ -797,7 +797,7 @@ function monthCalc(y, m){
   return res;
 }
 const won = n => Math.floor(n).toLocaleString('ko-KR') + '원';
-/* 돈 입력 칸: 세 자리마다 쉼표 (3081800 → 3,081,800). 저장은 쉼표 없는 숫자 */
+/* 돈 입력 칸: 세 자리마다 쉼표 (3000000 → 3,000,000). 저장은 쉼표 없는 숫자 */
 const digits = v => Number(String(v).replace(/[^\d]/g, '')) || 0;
 const commas = n => Number(n) ? Math.floor(Number(n)).toLocaleString('ko-KR') : '';
 document.addEventListener('input', e => {
