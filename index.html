@@ -265,6 +265,8 @@ nav button.pressing svg{transform:translateY(1px)}
 .btn:disabled{opacity:.45}
 #toast{position:fixed;left:50%;bottom:90px;transform:translate(-50%,8px) scale(0.97);opacity:0;pointer-events:none;background:rgba(30,30,30,.9);color:#fff;padding:9px 16px;border-radius:999px;font-size:14px;z-index:20;white-space:nowrap;
   transition:opacity 150ms ease,transform 150ms var(--ease-out)}
+#toast.act{pointer-events:auto;display:flex;align-items:center;gap:12px;padding:6px 6px 6px 16px}
+#toast button{border:1.5px solid #8ea6ff;background:none;color:#b9c8ff;border-radius:999px;padding:6px 12px;font-size:14px;font-weight:700}
 #toast.on{opacity:1;transform:translate(-50%,0) scale(1);transition:opacity 200ms ease,transform 200ms var(--ease-out)}
 </style>
 </head>
@@ -330,7 +332,7 @@ nav button.pressing svg{transform:translateY(1px)}
     <div class="note" style="margin-bottom:6px">세 가지만 알려 주세요. 나중에 「내 정보」에서 바꿀 수 있습니다.</div>
     <h3>1. 내 조</h3><div class="cgrid c4" id="obTeam"></div>
     <h3>2. 통상임금 <span class="s" style="font-weight:500;color:var(--sub)">(월, 원)</span></h3>
-    <input class="inp" id="obWage" type="number" inputmode="numeric" min="0" placeholder="예) 3000000" style="width:100%">
+    <input class="inp money" type="text" inputmode="numeric" autocomplete="off" id="obWage" placeholder="예) 3,000,000" style="width:100%">
     <div class="hint" id="obHourly">수당 계산에 씁니다. 몰라도 비워 두고 나중에 넣을 수 있습니다.</div>
     <h3>3. 올해 남은 연차 <span class="s" style="font-weight:500;color:var(--sub)">(개)</span></h3>
     <input class="inp" id="obLeave" type="number" inputmode="decimal" min="0" step="0.25" placeholder="예) 15" style="width:100%">
@@ -795,6 +797,19 @@ function monthCalc(y, m){
   return res;
 }
 const won = n => Math.floor(n).toLocaleString('ko-KR') + '원';
+/* 돈 입력 칸: 세 자리마다 쉼표 (3081800 → 3,081,800). 저장은 쉼표 없는 숫자 */
+const digits = v => Number(String(v).replace(/[^\d]/g, '')) || 0;
+const commas = n => Number(n) ? Math.floor(Number(n)).toLocaleString('ko-KR') : '';
+document.addEventListener('input', e => {
+  const el = e.target;
+  if(!el.classList || !el.classList.contains('money')) return;
+  const caret = el.value.slice(0, el.selectionStart).replace(/[^\d]/g, '').length; // 커서 앞 숫자 개수
+  const raw = el.value.replace(/[^\d]/g, '').replace(/^0+(?=\d)/, '').slice(0, 12);
+  const v = raw ? Number(raw).toLocaleString('ko-KR') : '';
+  let i = 0;
+  for(let n = 0; i < v.length && n < caret; i++) if(v[i] !== ',') n++;
+  el.value = v; el.setSelectionRange(i, i);
+}, true);
 /* 회사 급여 규칙 (2026-10 급여명세서 = 9월 근무분으로 검산)
    · 회사 시급 = 통상임금 ÷ 209 (정수), 단가 = 시급 × 배율 반올림, 금액 = 단가 × 시간(소수 둘째 자리)의 10원 아래 버림
    · 휴일근무수당은 원래 「휴」인 날만: 8시간까지 1.5배(휴일1), 넘는 시간 2배(휴일2). 「비」 날 휴일근무는 시간외
@@ -1406,7 +1421,7 @@ function renderSet(){
   // 분할연차 기준표도 바꿀 일이 없어 화면에서 뺌 (값은 그대로 씀)
   h += `<h3>수당 계산</h3>
     <div class="row"><label>시급</label>통상임금 ÷ <input class="inp sm" type="number" min="1" data-set="wageDiv" value="${esc(st.wageDiv)}"> = <b id="hourly">${won((Number(st.wage)||0) / (Number(st.wageDiv)||214))}</b></div>
-    <div class="row"><label>법정 시급</label><input class="inp" style="width:120px" type="number" min="0" data-set="legalHourly" value="${esc(st.legalHourly || '')}" placeholder="${window.PERSONAL && window.PERSONAL.legalHourly ? window.PERSONAL.legalHourly : '모르면 비움'}"> 원</div>
+    <div class="row"><label>법정 시급</label><input class="inp money" type="text" inputmode="numeric" autocomplete="off" style="width:120px" data-set="legalHourly" value="${commas(st.legalHourly)}" placeholder="${window.PERSONAL && window.PERSONAL.legalHourly ? commas(window.PERSONAL.legalHourly) : '모르면 비움'}"> 원</div>
     <div class="hint">명세서의 「법정차액」을 계산할 때만 씁니다. 비워 두면 법정차액 없이 회사 시급으로만 계산합니다.</div>
     <div class="row"><label>초과 배율</label><input class="inp sm" type="number" step="0.1" min="0" data-set="otRate" value="${esc(st.otRate)}">
       <span style="width:8px"></span>야간 배율 <input class="inp sm" type="number" step="0.1" min="0" data-set="nightRate" value="${esc(st.nightRate)}"></div>
@@ -1450,7 +1465,7 @@ function renderSet(){
     <div id="impBox" style="display:none"><textarea class="inp" id="impText" rows="5" style="width:100%" placeholder="내보낸 글을 여기에 붙여넣으세요"></textarea>
       <div class="row"><button class="btn pri" id="impGo">이 내용으로 바꾸기</button></div></div>
     <h3>초기화</h3><div class="row"><button class="btn warn" id="reset">모든 기록 지우기</button></div>
-    <div class="note" style="margin-top:20px">근무달력 5.3 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
+    <div class="note" style="margin-top:20px">근무달력 5.4 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
   $('setBody').innerHTML = h;
   renderPreview();
 }
@@ -1461,7 +1476,7 @@ function renderMe(){
     <div class="hint">조를 바꾸면 달력의 근무가 그 조 순서로 바뀝니다. 날짜마다 직접 바꾼 근무·메모·근태는 그대로 남습니다.</div>
     <div class="card" id="pv" style="margin-top:8px"></div>`;
   h += `<h3>통상임금</h3>
-    <div class="row"><input class="inp" style="flex:1" type="number" inputmode="numeric" min="0" step="100" data-me="wage" value="${esc(st.wage)}"> 원</div>
+    <div class="row"><input class="inp money" type="text" inputmode="numeric" autocomplete="off" style="flex:1" data-me="wage" value="${commas(st.wage)}"> 원</div>
     <div class="hint" id="meHourly">시급 ${won((Number(st.wage)||0) / (Number(st.wageDiv)||214))} (통상임금 ÷ ${esc(st.wageDiv)}) · 수당 계산에 씁니다</div>`;
   // 고정급: 매달 같은 금액으로 받는 것 (기본급·급식비 등). 적으면 「예상 총지급」이 나옴
   const fp = st.fixedPay || [];
@@ -1469,7 +1484,7 @@ function renderMe(){
   if(!fp.length) h += `<div class="note" style="margin-bottom:8px">급여명세서에서 매달 똑같이 나오는 항목을 적으면, 시간 계산에서 수당과 더해 <b>예상 총지급</b>을 보여 줍니다.</div>`;
   fp.forEach((f, i) => {
     h += `<div class="row" style="margin:6px 0;flex-wrap:nowrap"><input class="inp" style="flex:1" data-fp="name" data-i="${i}" value="${esc(f[0])}" placeholder="항목 이름">
-      <input class="inp" style="width:118px;text-align:right" type="number" inputmode="numeric" min="0" data-fp="amt" data-i="${i}" value="${esc(f[1] || '')}" placeholder="0">
+      <input class="inp money" type="text" inputmode="numeric" autocomplete="off" style="width:118px;text-align:right" data-fp="amt" data-i="${i}" value="${commas(f[1])}" placeholder="0">
       <button class="x" data-fpdel="${i}" aria-label="지우기">✕</button></div>`;
   });
   h += `<div class="cgrid c2" style="margin-top:8px"><button class="chip" id="fpAdd">+ 항목 추가</button>
@@ -1523,7 +1538,7 @@ function onMe(ev){
   const el = ev.target.closest('button') || ev.target, st = S.settings;
   if(el.dataset.fp){
     const f = st.fixedPay[Number(el.dataset.i)];
-    if(el.dataset.fp === 'name') f[0] = el.value; else f[1] = Number(el.value) || 0;
+    if(el.dataset.fp === 'name') f[0] = el.value; else f[1] = digits(el.value);
     save();
     const t = $('fpSum'); if(t) t.textContent = won(st.fixedPay.reduce((a, x) => a + (Number(x[1]) || 0), 0));
     return;
@@ -1531,11 +1546,15 @@ function onMe(ev){
   if(ev.type === 'click'){
     if(el.id === 'fpAdd'){ (st.fixedPay = st.fixedPay || []).push(['', 0]); save(); renderMe(); return; }
     if(el.id === 'fpTpl'){ st.fixedPay = ['기본급','급식비','안전역할가산금','조정수당(교대)','기술수당','특별업무'].map(n => [n, 0]); save(); renderMe(); return; }
-    if(el.dataset.fpdel != null){ st.fixedPay.splice(Number(el.dataset.fpdel), 1); save(); renderMe(); return; }
+    if(el.dataset.fpdel != null){
+      const at = Number(el.dataset.fpdel), [gone] = st.fixedPay.splice(at, 1); save(); renderMe();
+      toast(`「${gone[0] || '이름 없음'}」 지움`, () => { st.fixedPay.splice(at, 0, gone); save(); renderMe(); toast('되돌렸습니다'); });
+      return;
+    }
   }
   if(ev.type === 'click' && el.dataset.team){ st.team = el.dataset.team; save(); renderMe(); renderCal(); toast(`${st.team}조 근무표로 바꿨습니다`); return; }
   if(el.dataset.me === 'wage' && ev.type === 'input'){
-    st.wage = Number(el.value) || 0; save();
+    st.wage = digits(el.value); save();
     $('meHourly').textContent = `시급 ${won(st.wage / (Number(st.wageDiv)||214))} (통상임금 ÷ ${st.wageDiv}) · 수당 계산에 씁니다`;
   }
   if(el.dataset.me === 'remain' && ev.type === 'change'){
@@ -1567,6 +1586,7 @@ function onSet(ev){
     const f = el.dataset.set;
     if(el.type === 'checkbox') st[f] = el.checked;
     else if(el.type === 'number') st[f] = el.value === '' ? 0 : Number(el.value);
+    else if(el.classList.contains('money')) st[f] = digits(el.value);
     else st[f] = el.value;
     if(f === 'pattern'){
       st.pattern = el.value.replace(/[\s,·\/]/g, '');
@@ -1615,7 +1635,8 @@ function onSetClick(ev){
   else if(el.dataset.shdel != null){
     const s = st.shifts[Number(el.dataset.shdel)];
     if(s.name && st.pattern.includes(s.name)){ toast('교대 순서에 들어 있어서 지울 수 없습니다'); return; }
-    st.shifts.splice(Number(el.dataset.shdel), 1); save(); renderSet();
+    const at = Number(el.dataset.shdel); st.shifts.splice(at, 1); save(); renderSet();
+    toast(`「${s.name || '이름 없음'}」 근무 지움`, () => { st.shifts.splice(at, 0, s); save(); renderSet(); toast('되돌렸습니다'); });
   }
   else if(el.id === 'addType'){ st.types.push({id:'t' + Date.now(), name:'새 근태', mode:'none', start:'09:00', end:'18:00', credit:0}); save(); renderSet(); }
   else if(el.dataset.tydel != null){
@@ -1660,7 +1681,17 @@ function show(p){
   if(p === 'cal') renderCal(); if(p === 'stat') renderStat(); if(p === 'set') renderSet(); if(p === 'me') renderMe();
 }
 let toastT;
-function toast(t){ const e = $('toast'); e.textContent = t; e.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => e.classList.remove('on'), 2200); }
+/* 알림 한 줄. undo 를 주면 「되돌리기」 단추가 붙고 조금 더 오래(5초) 떠 있음 */
+function toast(t, undo){
+  const e = $('toast'); e.textContent = t; e.classList.toggle('act', !!undo);
+  if(undo){
+    const b = document.createElement('button'); b.textContent = '되돌리기';
+    b.onclick = () => { clearTimeout(toastT); e.classList.remove('on', 'act'); undo(); };
+    e.appendChild(b);
+  }
+  e.classList.add('on'); clearTimeout(toastT);
+  toastT = setTimeout(() => e.classList.remove('on', 'act'), undo ? 5000 : 2200);
+}
 /* 안드로이드 뒤로 가기 */
 window.__back = function(){
   if($('onboard').classList.contains('on')){ if(window.Android && Android.exit) Android.exit(); return; }
@@ -1742,7 +1773,7 @@ function showOnboard(){
     if(!team) return;
     const st = S.settings;
     st.team = team;
-    st.wage = Number($('obWage').value) || 0;
+    st.wage = digits($('obWage').value);
     const lv = $('obLeave').value.trim();
     if(lv !== '') st.leave = {year:new Date().getFullYear(), remain:Number(lv) || 0, asOf:todayKey(), typed:Number(lv) || 0};
     S.onboarded = true; saveNow();
@@ -1804,6 +1835,10 @@ function init(){
   $('meBody').addEventListener('click', onMe);
   $('setBody').addEventListener('input', onSet);
   $('setBody').addEventListener('change', onSet);
+  for(const id of ['meBody', 'setBody']) $(id).addEventListener('change', e => {
+    const el = e.target;
+    if(el.matches('input:not([type=checkbox]):not([type=radio]), select, textarea') && el.dataset.me !== 'remain') toast('저장했습니다');
+  });
   $('setBody').addEventListener('click', onSetClick);
   for(const b of document.querySelectorAll('nav button')) b.onclick = () => show(b.dataset.p);
   // 옆으로 밀어서 달 넘기기
