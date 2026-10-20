@@ -265,6 +265,18 @@ nav button.pressing svg{transform:translateY(1px)}
 .btn:disabled{opacity:.45}
 #toast{position:fixed;left:50%;bottom:90px;transform:translate(-50%,8px) scale(0.97);opacity:0;pointer-events:none;background:rgba(30,30,30,.9);color:#fff;padding:9px 16px;border-radius:999px;font-size:14px;z-index:20;white-space:nowrap;
   transition:opacity 150ms ease,transform 150ms var(--ease-out)}
+#dlgMask{position:fixed;inset:0;z-index:40;background:var(--mask);display:flex;align-items:center;justify-content:center;padding:24px;
+  opacity:0;pointer-events:none;transition:opacity 150ms ease}
+#dlgMask.on{opacity:1;pointer-events:auto;transition:opacity 200ms ease}
+#dlg{width:100%;max-width:340px;background:var(--bg);border-radius:18px;padding:22px 18px 16px;box-shadow:0 8px 32px var(--shadow);
+  transform:scale(0.96);transition:transform 150ms var(--ease-out)}
+#dlgMask.on #dlg{transform:scale(1);transition:transform 200ms var(--ease-out)}
+#dlgMsg{font-size:16px;font-weight:700;line-height:1.55;text-align:center;white-space:pre-line;text-wrap:pretty;margin-bottom:18px}
+#dlgMsg small{display:block;font-size:13.5px;font-weight:500;color:var(--sub);margin-top:6px}
+#dlgBtns{display:flex;gap:8px}
+#dlgBtns .btn{flex:1;padding:12px 0;font-size:15px}
+#dlgBtns .btn.danger{background:var(--red);border-color:var(--red);color:#fff}
+@media (prefers-reduced-motion: reduce){ #dlg,#dlgMask.on #dlg{transform:none} }
 #toast.act{pointer-events:auto;display:flex;align-items:center;gap:12px;padding:6px 6px 6px 16px}
 #toast button{border:1.5px solid #8ea6ff;background:none;color:#b9c8ff;border-radius:999px;padding:6px 12px;font-size:14px;font-weight:700}
 #toast.on{opacity:1;transform:translate(-50%,0) scale(1);transition:opacity 200ms ease,transform 200ms var(--ease-out)}
@@ -326,6 +338,8 @@ nav button.pressing svg{transform:translateY(1px)}
   <div class="shfoot"><button class="btn" id="shCancel">취소</button><button class="btn pri" id="shSave">저장</button></div>
 </div>
 <div id="toast"></div>
+<!-- 앱 안의 확인 창 (휴대폰 기본 창은 「file:// 페이지 내용」 같은 글이 붙어서 직접 그림) -->
+<div id="dlgMask"><div id="dlg" role="alertdialog" aria-modal="true"><div id="dlgMsg"></div><div id="dlgBtns"></div></div></div>
 <div id="onboard" class="ob">
   <div class="obin">
     <div class="obt">근무달력 시작하기</div>
@@ -1058,8 +1072,12 @@ const dayDirty = () => editK && JSON.stringify(S.days[editK] || null) !== JSON.s
 function closeSheet(){
   if(!editK) return;
   if(dayDirty()){
-    if(!confirm('저장하지 않고 닫을까요?\n바꾼 내용은 사라집니다.')) return;
-    if(draftOrig) S.days[editK] = draftOrig; else delete S.days[editK];
+    ask('저장하지 않고 닫을까요?\n바꾼 내용은 사라집니다.', {ok:'닫기', cancel:'계속 고치기'}).then(yes => {
+      if(!yes || !editK) return;
+      if(draftOrig) S.days[editK] = draftOrig; else delete S.days[editK];
+      hideSheet();
+    });
+    return;
   }
   hideSheet();
 }
@@ -1238,7 +1256,7 @@ function onSheet(ev){
   }
   if(['pickw', 'pick', 'like', 'part', 'estart', 'eend'].includes(act) && designatedContinuous(k)){
     d.entries = JSON.parse(before); dclean(k);
-    alert('지정근무는 연속근무 할 수 없습니다.\n(앞뒤 근무와 쉬는 시간 없이 바로 이어집니다)');
+    ask('지정근무는 연속근무 할 수 없습니다.\n앞뒤 근무와 쉬는 시간 없이 바로 이어집니다.', {alert:true});
     renderDay(); return;
   }
   dclean(k); save();
@@ -1465,7 +1483,7 @@ function renderSet(){
     <div id="impBox" style="display:none"><textarea class="inp" id="impText" rows="5" style="width:100%" placeholder="내보낸 글을 여기에 붙여넣으세요"></textarea>
       <div class="row"><button class="btn pri" id="impGo">이 내용으로 바꾸기</button></div></div>
     <h3>초기화</h3><div class="row"><button class="btn warn" id="reset">모든 기록 지우기</button></div>
-    <div class="note" style="margin-top:20px">근무달력 5.4 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
+    <div class="note" style="margin-top:20px">근무달력 5.5 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
   $('setBody').innerHTML = h;
   renderPreview();
 }
@@ -1641,17 +1659,19 @@ function onSetClick(ev){
   else if(el.id === 'addType'){ st.types.push({id:'t' + Date.now(), name:'새 근태', mode:'none', start:'09:00', end:'18:00', credit:0}); save(); renderSet(); }
   else if(el.dataset.tydel != null){
     const t = st.types[Number(el.dataset.tydel)];
-    if(!confirm(`「${t.name}」 종류를 지울까요? 이미 넣은 기록은 「지운 종류」로 남습니다.`)) return;
-    st.types.splice(Number(el.dataset.tydel), 1); save(); renderSet();
+    ask(`「${t.name}」 종류를 지울까요?\n이미 넣은 기록은 「지운 종류」로 남습니다.`, {ok:'지우기', danger:true}).then(yes => {
+      if(!yes) return;
+      const at = st.types.indexOf(t); if(at >= 0) st.types.splice(at, 1); save(); renderSet();
+    });
   }
-  else if(el.id === 'ptReset'){ if(confirm('분할연차 기준표를 처음 값으로 되돌릴까요?')){ st.partTable = defaultPartTable(); save(); renderSet(); } }
+  else if(el.id === 'ptReset'){ ask('분할연차 기준표를 처음 값으로 되돌릴까요?', {ok:'되돌리기'}).then(yes => { if(yes){ st.partTable = defaultPartTable(); save(); renderSet(); } }); }
   else if(el.id === 'exp') exportData();
   else if(el.id === 'imp'){ $('impBox').style.display = 'block'; }
   else if(el.id === 'impGo') importData($('impText').value);
   else if(el.id === 'reset'){
-    if(confirm('모든 근무 기록과 설정을 지웁니다. 되돌릴 수 없습니다. 계속할까요?') && confirm('정말 지울까요?')){
-      S = defaults(); saveNow(); renderSet(); renderCal(); toast('지웠습니다');
-    }
+    ask('모든 근무 기록과 설정을 지울까요?\n지우면 되돌릴 수 없습니다.', {ok:'계속', danger:true})
+      .then(yes => yes && ask('정말 지울까요?\n근무 기록·메모·설정이 모두 사라집니다.', {ok:'모두 지우기', danger:true}))
+      .then(yes => { if(yes){ S = defaults(); saveNow(); renderSet(); renderCal(); toast('지웠습니다'); } });
   }
 }
 function exportData(){
@@ -1668,8 +1688,9 @@ function importData(text){
   const o = safeParse((text||'').trim());
   const data = o && (o.data || o);
   if(!data || !data.settings || !data.days){ toast('백업 내용이 아닙니다. 전체를 붙여넣었는지 확인하세요'); return; }
-  if(!confirm('지금 기록을 이 백업으로 바꿉니다. 계속할까요?')) return;
-  S = merge(defaults(), data); saveNow(); renderSet(); renderCal(); toast('가져왔습니다');
+  ask('지금 기록을 이 백업으로 바꿀까요?\n지금 있는 기록은 사라집니다.', {ok:'바꾸기', danger:true}).then(yes => {
+    if(yes){ S = merge(defaults(), data); saveNow(); renderSet(); renderCal(); toast('가져왔습니다'); }
+  });
 }
 
 /* ───────── 공통 ───────── */
@@ -1681,6 +1702,20 @@ function show(p){
   if(p === 'cal') renderCal(); if(p === 'stat') renderStat(); if(p === 'set') renderSet(); if(p === 'me') renderMe();
 }
 let toastT;
+/* 확인 창: ask('물음', {ok:'지우기', danger:true}) → 누르면 true / 취소·뒤로·바깥 → false
+   알림 창: ask('알림', {alert:true}) → 확인 단추 하나 */
+let dlgDone = null;
+function ask(msg, o = {}){
+  if(dlgDone) dlgDone(false);
+  const [head, ...rest] = String(msg).split('\n');
+  $('dlgMsg').innerHTML = esc(head) + (rest.length ? `<small>${esc(rest.join('\n'))}</small>` : '');
+  $('dlgBtns').innerHTML = (o.alert ? '' : `<button class="btn" data-a="0">${esc(o.cancel || '취소')}</button>`)
+    + `<button class="btn ${o.danger ? 'danger' : 'pri'}" data-a="1">${esc(o.ok || '확인')}</button>`;
+  $('dlgMask').classList.add('on');
+  return new Promise(res => {
+    dlgDone = v => { dlgDone = null; $('dlgMask').classList.remove('on'); res(v); };
+  });
+}
 /* 알림 한 줄. undo 를 주면 「되돌리기」 단추가 붙고 조금 더 오래(5초) 떠 있음 */
 function toast(t, undo){
   const e = $('toast'); e.textContent = t; e.classList.toggle('act', !!undo);
@@ -1694,6 +1729,7 @@ function toast(t, undo){
 }
 /* 안드로이드 뒤로 가기 */
 window.__back = function(){
+  if(dlgDone){ dlgDone(false); return; }
   if($('onboard').classList.contains('on')){ if(window.Android && Android.exit) Android.exit(); return; }
   if(editK){ closeSheet(); return; }
   if(page !== 'cal'){ show('cal'); return; }
@@ -1840,6 +1876,11 @@ function init(){
     if(el.matches('input:not([type=checkbox]):not([type=radio]), select, textarea') && el.dataset.me !== 'remain') toast('저장했습니다');
   });
   $('setBody').addEventListener('click', onSetClick);
+  $('dlgMask').addEventListener('click', e => {
+    if(!dlgDone) return;
+    const b = e.target.closest('#dlgBtns button');
+    if(b) dlgDone(b.dataset.a === '1'); else if(e.target.id === 'dlgMask') dlgDone(false);
+  });
   for(const b of document.querySelectorAll('nav button')) b.onclick = () => show(b.dataset.p);
   // 옆으로 밀어서 달 넘기기
   let sx = 0, sy = 0, swiped = false;
