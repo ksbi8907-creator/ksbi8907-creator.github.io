@@ -668,6 +668,20 @@ function dayBlocks(k){
   });
   return {d, sh, def, entries, replaced, partE, blocks};
 }
+/* 지정근무가 앞뒤 근무와 쉬는 시간 없이 바로 이어지는지 (k 앞뒤 하루씩 살펴봄)
+   예) 주간 지정근무 + 같은 날 야간 근무, 휴무에 야간 지정근무 + 다음날 주간 근무 */
+function designatedContinuous(k){
+  const n = dnum(k), blocks = [];
+  for(let j = n - 2; j <= n + 2; j++){
+    const info = dayBlocks(fromNum(j));
+    for(const b of info.blocks){
+      const e = b.entry ? info.entries[Number(b.id.slice(1))] : null;
+      blocks.push({a:b.a, b:b.b, day:j, des:!!e && typeDef(e.type).name.indexOf('지정근무') >= 0});
+    }
+  }
+  return blocks.some(x => x.des && Math.abs(x.day - n) <= 1 &&
+    blocks.some(y => y !== x && y.a <= x.b && x.a <= y.b));   // 겹치거나 딱 붙으면 연속
+}
 /* 연속 근무로 겹친 시간: 추가근무(휴일근무 등)에서 뺌 → 초과시간이 그만큼 줄어듦.
    둘 다 교대근무거나 둘 다 추가근무면 먼저 시작한 쪽에서 뺌
    예) 휴일근무 주간 09:00~18:40 + 같은 날 야간 18:10 출근 → 휴일근무에서 30분 (8.17시간)
@@ -971,6 +985,11 @@ function renderCal(){
   g.innerHTML = h;
   renderCalTail();
 }
+/* 한 줄에 다 안 들어가면 글씨를 조금씩 줄임 (잘리지 않게) */
+function fitLine(el){
+  let f = 12.5; el.style.fontSize = f + 'px';
+  while(el.scrollWidth > el.clientWidth + 1 && f > 9){ f -= 0.5; el.style.fontSize = f + 'px'; }
+}
 /* 달력 아래 두 줄: ① 예상 급여 ② 추가근무로 생긴 돈 + 근태 횟수 */
 function renderCalTail(){
   const mr = monthCalc(curY, curM), pay = payCalc(mr);
@@ -979,23 +998,22 @@ function renderCalTail(){
   const ex = payCalc({otOnly:mr.otOnly, night:mr.extraNight, hol1:mr.hol1, hol2:mr.hol2});
   const SHORT = {'지정근무':'지근', '휴일근무':'휴근', '근무협조':'협조', '청원휴가':'청원', '산업안전교육':'안전교육'};
   const sn = n => SHORT[n] || n.replace(/근무$/, '').slice(0, 2);
-  const w = {}, r = {}, o = {};
+  const w = {}, r = {};
   const last = new Date(curY, curM, 0).getDate();
   for(let d = 1; d <= last; d++){
     for(const e of ((S.days[key(curY, curM, d)] || {}).entries || [])){
       const t = typeDef(e.type);
       if(t.mode === 'add'){ const g = w[sn(t.name)] || (w[sn(t.name)] = {}), l = e.like || '직접'; g[l] = (g[l] || 0) + 1; }
       else if(t.mode === 'replace'){ const k = sn(t.name); r[k] = (r[k] || 0) + LEAVE_AMT[partOf(e)]; }
-      else { const k = sn(t.name); o[k] = (o[k] || 0) + 1; }
     }
   }
   // 같은 종류는 묶어서: 휴근 주1·야1
   const ws = Object.entries(w).map(([k, g]) => `<span class="w">${k} ${Object.entries(g).map(([l, n]) => l + n).join('·')}</span>`).join(' ');
   const rs = Object.entries(r).map(([k, n]) => `<span class="r">${k}${fmtN(n)}</span>`).join(' ');
-  const os = Object.entries(o).map(([k, n]) => `<span>${k}${n}</span>`).join(' ');
   $('extraLine').innerHTML = `<span>추가</span><span class="amt">+${won(ex.total)}</span>`
-    + (ws ? `<span class="sep">│</span>${ws}` : '') + (rs ? `<span class="sep">│</span>${rs}` : '') + (os ? `<span class="sep">│</span>${os}` : '')
-    + (ws || rs || os ? '' : `<span class="sep">│</span><span>이번 달 근태 없음</span>`);
+    + (ws ? `<span class="sep">│</span>${ws}` : '') + (rs ? `<span class="sep">│</span>${rs}` : '')
+    + (ws || rs ? '' : `<span class="sep">│</span><span>이번 달 근태 없음</span>`);
+  fitLine($('extraLine'));
 }
 function moveMonth(n){
   curM += n;
@@ -1152,6 +1170,7 @@ function onSheet(ev){
   if(!isInput && INPUTS.includes(act)) return;
   if(isInput && !INPUTS.includes(act)) return;
   const d = dget(k);
+  const before = JSON.stringify(d.entries || []);   // 지정근무 연속근무면 되돌리려고
   switch(act){
     case 'shift':
       if(el.dataset.v === '__auto') delete d.shift; else d.shift = el.dataset.v;
@@ -1194,6 +1213,11 @@ function onSheet(ev){
       if(d.hol === undefined) delete d.hol;
       break; }
     case 'holname': d.holName = el.value; dclean(k); save(); return;
+  }
+  if(['pickw', 'pick', 'like', 'part', 'estart', 'eend'].includes(act) && designatedContinuous(k)){
+    d.entries = JSON.parse(before); dclean(k);
+    alert('지정근무는 연속근무 할 수 없습니다.\n(앞뒤 근무와 쉬는 시간 없이 바로 이어집니다)');
+    renderDay(); return;
   }
   dclean(k); save();
   if((act === 'pick' || act === 'part' || act === 'del') && typeof leaveLeft === 'function'){
@@ -1419,7 +1443,7 @@ function renderSet(){
     <div id="impBox" style="display:none"><textarea class="inp" id="impText" rows="5" style="width:100%" placeholder="내보낸 글을 여기에 붙여넣으세요"></textarea>
       <div class="row"><button class="btn pri" id="impGo">이 내용으로 바꾸기</button></div></div>
     <h3>초기화</h3><div class="row"><button class="btn warn" id="reset">모든 기록 지우기</button></div>
-    <div class="note" style="margin-top:20px">근무달력 5.1 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
+    <div class="note" style="margin-top:20px">근무달력 5.2 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
   $('setBody').innerHTML = h;
   renderPreview();
 }
