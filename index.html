@@ -429,6 +429,8 @@ function load(){
   S = merge(defaults(), o);
   // 처음 설정 표시가 없는 예전 기록: 실제로 넣은 근태·메모·연차가 있을 때만 「이미 쓰던 사람」으로 봄
   // (링크만 한 번 열어 본 기록은 예전 기본값이 섞여 있으므로 처음 설정을 다시 묻고 통상임금을 비움)
+  if(window.PERSONAL && window.PERSONAL.fixedPay && !S.settings.fixedPay)
+    S.settings.fixedPay = window.PERSONAL.fixedPay.map(f => [f[0], f[1]]);
   if(o && o.onboarded == null){
     const used = Object.keys(o.days || {}).length || Object.keys(o.monthMemo || {}).length || (o.settings && o.settings.leave);
     S.onboarded = !!used;
@@ -776,7 +778,7 @@ function payCalc(r, y){
     .map(([name, mult, hours]) => { const co = amt(hr, mult, hours);
       return {name, mult, hours, co, lg:!lg ? co : merged ? amt(lg, mult, hours) : co + amt(lg - hr, mult, hours)}; });
   const coSum = items.reduce((a, i) => a + i.co, 0), lgSum = items.reduce((a, i) => a + i.lg, 0);
-  const fixedList = P.fixedPay || [], fixed = fixedList.reduce((a, f) => a + f[1], 0);
+  const fixedList = (st.fixedPay || []).filter(f => Number(f[1])), fixed = fixedList.reduce((a, f) => a + Number(f[1]), 0);
   const allow = merged ? lgSum : coSum, diff = merged ? 0 : lgSum - coSum;
   return {hourly:hr, legal:lg, merged, items, fixedList, fixed, allow, diff, total:allow + diff, grand:fixed + allow + diff, amt};
 }
@@ -1375,7 +1377,7 @@ function renderSet(){
     <div id="impBox" style="display:none"><textarea class="inp" id="impText" rows="5" style="width:100%" placeholder="내보낸 글을 여기에 붙여넣으세요"></textarea>
       <div class="row"><button class="btn pri" id="impGo">이 내용으로 바꾸기</button></div></div>
     <h3>초기화</h3><div class="row"><button class="btn warn" id="reset">모든 기록 지우기</button></div>
-    <div class="note" style="margin-top:20px">근무달력 4.7 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
+    <div class="note" style="margin-top:20px">근무달력 4.8 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
   $('setBody').innerHTML = h;
   renderPreview();
 }
@@ -1388,6 +1390,19 @@ function renderMe(){
   h += `<h3>통상임금</h3>
     <div class="row"><input class="inp" style="flex:1" type="number" inputmode="numeric" min="0" step="100" data-me="wage" value="${esc(st.wage)}"> 원</div>
     <div class="hint" id="meHourly">시급 ${won((Number(st.wage)||0) / (Number(st.wageDiv)||214))} (통상임금 ÷ ${esc(st.wageDiv)}) · 수당 계산에 씁니다</div>`;
+  // 고정급: 매달 같은 금액으로 받는 것 (기본급·급식비 등). 적으면 「예상 총지급」이 나옴
+  const fp = st.fixedPay || [];
+  h += `<h3>고정급 <span class="s" style="font-weight:500;color:var(--sub)">(매달 같은 돈)</span></h3><div class="card" style="padding:10px 12px">`;
+  if(!fp.length) h += `<div class="note" style="margin-bottom:8px">급여명세서에서 매달 똑같이 나오는 항목을 적으면, 시간 계산에서 수당과 더해 <b>예상 총지급</b>을 보여 줍니다.</div>`;
+  fp.forEach((f, i) => {
+    h += `<div class="row" style="margin:6px 0;flex-wrap:nowrap"><input class="inp" style="flex:1" data-fp="name" data-i="${i}" value="${esc(f[0])}" placeholder="항목 이름">
+      <input class="inp" style="width:118px;text-align:right" type="number" inputmode="numeric" min="0" data-fp="amt" data-i="${i}" value="${esc(f[1] || '')}" placeholder="0">
+      <button class="x" data-fpdel="${i}" aria-label="지우기">✕</button></div>`;
+  });
+  h += `<div class="cgrid c2" style="margin-top:8px"><button class="chip" id="fpAdd">+ 항목 추가</button>
+    ${fp.length ? '' : '<button class="chip" id="fpTpl">자주 쓰는 항목 넣기</button>'}</div>`;
+  if(fp.length) h += `<div class="hr"></div><div class="kv"><span>합계</span><span class="v" id="fpSum">${won(fp.reduce((a, f) => a + (Number(f[1]) || 0), 0))}</span></div>`;
+  h += `</div>`;
   h += `<h3>${y}년 연차</h3>`;
   if(ll){
     h += `<div class="card"><div class="kv"><span>남은 연차</span></div>
@@ -1432,7 +1447,19 @@ function renderMe(){
   renderPreview();
 }
 function onMe(ev){
-  const el = ev.target, st = S.settings;
+  const el = ev.target.closest('button') || ev.target, st = S.settings;
+  if(el.dataset.fp){
+    const f = st.fixedPay[Number(el.dataset.i)];
+    if(el.dataset.fp === 'name') f[0] = el.value; else f[1] = Number(el.value) || 0;
+    save();
+    const t = $('fpSum'); if(t) t.textContent = won(st.fixedPay.reduce((a, x) => a + (Number(x[1]) || 0), 0));
+    return;
+  }
+  if(ev.type === 'click'){
+    if(el.id === 'fpAdd'){ (st.fixedPay = st.fixedPay || []).push(['', 0]); save(); renderMe(); return; }
+    if(el.id === 'fpTpl'){ st.fixedPay = ['기본급','급식비','안전역할가산금','조정수당(교대)','기술수당','특별업무'].map(n => [n, 0]); save(); renderMe(); return; }
+    if(el.dataset.fpdel != null){ st.fixedPay.splice(Number(el.dataset.fpdel), 1); save(); renderMe(); return; }
+  }
   if(ev.type === 'click' && el.dataset.team){ st.team = el.dataset.team; save(); renderMe(); renderCal(); toast(`${st.team}조 근무표로 바꿨습니다`); return; }
   if(el.dataset.me === 'wage' && ev.type === 'input'){
     st.wage = Number(el.value) || 0; save();
