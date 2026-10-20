@@ -150,7 +150,8 @@ h3.gh.rest{color:var(--red)} h3.gh.work{color:var(--sat)}
 .cgrid.c4{grid-template-columns:repeat(4,minmax(0,1fr))}
 .cgrid .chip{position:relative;display:flex;align-items:center;justify-content:center;gap:4px;min-width:0;padding-left:6px;padding-right:6px;white-space:nowrap;border-width:1.5px}
 .cgrid .chip.span2{grid-column:span 2}
-.chip .ck{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-style:normal;font-size:13px} .chip.work.on{background:var(--sat);border-color:var(--sat);color:#fff}
+.cgrid .chip:has(.ck){padding-right:22px;padding-left:22px}
+.chip .ck{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-style:normal;font-size:13px} .chip.work.on{background:var(--sat);border-color:var(--sat);color:#fff}
 .entry.rest{border-color:rgba(229,72,77,.45)} .entry.work{border-color:rgba(61,109,242,.45)}
 
 #monthMemo{border-top:1px solid var(--line);padding:6px 16px}
@@ -386,7 +387,7 @@ function defaults(){
       /* 수당: 시급 = 통상임금 ÷ 214, 초과 = 시급 × 초과시간 × 1.5, 야간 = 시급 × 야간시간 × 0.5 */
       otMethod:'extra',   // extra = 추가근무(휴일근무·지정근무·근무협조) 합계, base = 월 기준시간 넘는 시간
       wage:0, wageDiv:209, otRate:1.5, nightRate:0.5, legalHourly:0,
-      ver:9,
+      ver:10,
       /* 분할연차(반일·1/4) 기준표. 근무 = 실제 근무시간, 야간 = 야간 인정시간, 인정 = 근무한 것으로 보는 연차 시간 */
       partTable:defaultPartTable(),
       types:[
@@ -399,6 +400,7 @@ function defaults(){
         {id:'t7', name:'교육',     mode:'replace', start:'',      end:'',      credit:8},
         {id:'t9', name:'청원휴가', mode:'replace', start:'',      end:'',      credit:8},
         {id:'t8', name:'출장',     mode:'none',    start:'09:00', end:'18:00', credit:0},
+        {id:'t10', name:'산업안전교육', mode:'none', start:'', end:'', credit:0},   // 근무는 그대로, 교육받는 날 기록 (보통 주간)
       ],
     },
     days:{},      // 'YYYY-MM-DD': {shift, memo, color, hol, holName, entries:[{type,start,end,credit,note}]}
@@ -500,6 +502,11 @@ function merge(d, o){
     r.settings.ver = 8;
   }
   if(r.settings.ver < 9) r.settings.ver = 9;
+  if(r.settings.ver < 10){ // 기타(기록만)에 「산업안전교육」 추가
+    if(!r.settings.types.some(t => t.name === '산업안전교육'))
+      r.settings.types.push({id:'t10', name:'산업안전교육', mode:'none', start:'', end:'', credit:0});
+    r.settings.ver = 10;
+  }
   r.days = o.days || {}; r.monthMemo = o.monthMemo || {};
   return r;
 }
@@ -869,7 +876,7 @@ function workCard(k){
 }
 /* 달력 칸에 쓰는 두 글자 이름 (잘리지 않게) */
 function shortName(t, e){
-  const MAP = {'휴일근무':'휴일','지정근무':'지정','근무협조':'협조','청원휴가':'청원'};
+  const MAP = {'휴일근무':'휴일','지정근무':'지정','근무협조':'협조','청원휴가':'청원','산업안전교육':'안전교육'};
   if(t.mode === 'replace' && t.name.indexOf('연차') >= 0){
     const p = partOf(e); if(p === 'am' || p === 'pm') return '반차'; if(p === 'q1' || p === 'q4') return '반반';
   }
@@ -970,23 +977,25 @@ function renderCalTail(){
   $('payLine').innerHTML = `<span>${curM % 12 + 1}월 예상 ${pay.fixed ? '급여' : '수당'} <span style="font-size:12px">(${curM}월 근무)</span></span><b style="color:var(--txt)">${won(pay.fixed ? pay.grand : pay.total)} ›</b>`;
   // 추가근무(지정·휴일근무)로 생기는 돈 = 그 시간만의 시간외·휴일·야간 수당 (+법정차액)
   const ex = payCalc({otOnly:mr.otOnly, night:mr.extraNight, hol1:mr.hol1, hol2:mr.hol2});
-  const SHORT = {'지정근무':'지근', '휴일근무':'휴근', '근무협조':'협조', '청원휴가':'청원'};
+  const SHORT = {'지정근무':'지근', '휴일근무':'휴근', '근무협조':'협조', '청원휴가':'청원', '산업안전교육':'안전교육'};
   const sn = n => SHORT[n] || n.replace(/근무$/, '').slice(0, 2);
-  const w = {}, r = {};
+  const w = {}, r = {}, o = {};
   const last = new Date(curY, curM, 0).getDate();
   for(let d = 1; d <= last; d++){
     for(const e of ((S.days[key(curY, curM, d)] || {}).entries || [])){
       const t = typeDef(e.type);
       if(t.mode === 'add'){ const g = w[sn(t.name)] || (w[sn(t.name)] = {}), l = e.like || '직접'; g[l] = (g[l] || 0) + 1; }
       else if(t.mode === 'replace'){ const k = sn(t.name); r[k] = (r[k] || 0) + LEAVE_AMT[partOf(e)]; }
+      else { const k = sn(t.name); o[k] = (o[k] || 0) + 1; }
     }
   }
   // 같은 종류는 묶어서: 휴근 주1·야1
   const ws = Object.entries(w).map(([k, g]) => `<span class="w">${k} ${Object.entries(g).map(([l, n]) => l + n).join('·')}</span>`).join(' ');
   const rs = Object.entries(r).map(([k, n]) => `<span class="r">${k}${fmtN(n)}</span>`).join(' ');
+  const os = Object.entries(o).map(([k, n]) => `<span>${k}${n}</span>`).join(' ');
   $('extraLine').innerHTML = `<span>추가</span><span class="amt">+${won(ex.total)}</span>`
-    + (ws ? `<span class="sep">│</span>${ws}` : '') + (rs ? `<span class="sep">│</span>${rs}` : '')
-    + (ws || rs ? '' : `<span class="sep">│</span><span>이번 달 근태 없음</span>`);
+    + (ws ? `<span class="sep">│</span>${ws}` : '') + (rs ? `<span class="sep">│</span>${rs}` : '') + (os ? `<span class="sep">│</span>${os}` : '')
+    + (ws || rs || os ? '' : `<span class="sep">│</span><span>이번 달 근태 없음</span>`);
 }
 function moveMonth(n){
   curM += n;
@@ -1091,7 +1100,7 @@ function renderDay(){
         h += `<div class="hint">인정 ${fmtH(it.work||0)}시간${it.night ? ' · 야간 ' + fmtH(it.night) + '시간' : ''}${it.hol ? ' · 휴일 ' + fmtH(it.hol) + '시간' : ''}`;
         if(it.loss) h += `<br><span style="color:var(--orange)">앞뒤 근무와 겹친 ${fmtH(it.loss)}시간은 빼고 셉니다 (연속 근무)</span>`;
         h += `</div>`;
-      } else h += `<div class="hint">${fmtH(it.work||0)}시간 (기록만, 시간 계산에는 안 들어감)</div>`;
+      } else h += `<div class="hint">기록만 합니다. 그날 근무·수당 계산은 그대로입니다${it.work ? ` · ${fmtH(it.work)}시간` : ' · 시간은 적어도 되고 비워도 됩니다'}</div>`;
     }
     h += `<input class="inp" style="width:100%" placeholder="메모 (선택)" data-act="enote" data-i="${i}" value="${esc(e.note||'')}">`;
     h += `</div>`;
@@ -1102,7 +1111,7 @@ function renderDay(){
     const rank = t => { const i = ORDER.indexOf(t.name); return i < 0 ? 99 : i; };
     const types = S.settings.types.filter(t => t.mode === g.mode).sort((x, y) => rank(x) - rank(y));
     if(!types.length && !(cards[g.mode] || []).length) continue;
-    h += `<h3 class="gh ${g.cls}">${g.title}<span>${g.sub}</span></h3><div class="cgrid ${g.mode === 'add' ? 'c2' : 'c3'}">`;
+    h += `<h3 class="gh ${g.cls}">${g.title}<span>${g.sub}</span></h3><div class="cgrid ${g.mode === 'replace' ? 'c3' : 'c2'}">`;
     for(const t of types){
       if(g.mode === 'add'){ // 일하는 날은 주·야를 바로 고름 (종류마다 한 줄)
 
@@ -1410,7 +1419,7 @@ function renderSet(){
     <div id="impBox" style="display:none"><textarea class="inp" id="impText" rows="5" style="width:100%" placeholder="내보낸 글을 여기에 붙여넣으세요"></textarea>
       <div class="row"><button class="btn pri" id="impGo">이 내용으로 바꾸기</button></div></div>
     <h3>초기화</h3><div class="row"><button class="btn warn" id="reset">모든 기록 지우기</button></div>
-    <div class="note" style="margin-top:20px">근무달력 5.0 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
+    <div class="note" style="margin-top:20px">근무달력 5.1 · 기록은 이 휴대폰 안에만 저장됩니다.</div>`;
   $('setBody').innerHTML = h;
   renderPreview();
 }
